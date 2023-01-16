@@ -15,6 +15,9 @@ edition = "2021"
 [badges]
 maintenance = { status = "actively-developed" }
 
+[features]
+webrtc-lite = [ "webrtc-unreliable" ]
+
 [dependencies]
 naia-socket-shared = { version = "0.10", path = "../shared" }
 log = { version = "0.4" }
@@ -23,6 +26,6 @@ futures-core = { version = "0.3" }
 futures-util = { version = "0.3", features = ["sink"] }
 smol = { version = "1.2.4" }
 once_cell = { version = "1.4.1" }
-webrtc-unreliable = { version = "0.5.2" }
+webrtc-unreliable = { version = "0.5.2", optional = true }
 async-dup = { version = "1.2.2" }
 http = { version = "0.2" }
