@@ -17,6 +17,10 @@ path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
 [features]
+wbindgen = [ "naia-bevy-client/wbindgen" ]
+webrtc-lite = [ "naia-bevy-client/webrtc-lite" ]
+webrtc-full = [ "naia-bevy-client/webrtc-full" ]
+
 
 [dependencies]
 naia-bevy-client = { path = "../../../adapters/bevy/client" }

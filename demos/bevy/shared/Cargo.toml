@@ -8,6 +8,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [features]
+wbindgen = [ "naia-shared/wbindgen" ]
 
 [dependencies]
 bevy_ecs = { version = "0.9", default-features=false}

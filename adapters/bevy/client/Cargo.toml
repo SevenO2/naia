@@ -13,9 +13,12 @@ edition = "2021"
 maintenance = { status = "actively-developed" }
 
 [features]
+wbindgen = [ "naia-client/wbindgen" ]
+webrtc-lite = [ "naia-client/webrtc-lite" ]
+webrtc-full = [ "naia-client/webrtc-full" ]
 
 [dependencies]
-naia-client = { version = "0.14", path = "../../../client", features = ["bevy_support", "wbindgen"] }
+naia-client = { version = "0.14", path = "../../../client", features = ["bevy_support"] }
 naia-bevy-shared = { version = "0.14", path = "../shared" }
 bevy_app = { version = "0.9", default-features=false }
 bevy_ecs = { version = "0.9", default-features=false }

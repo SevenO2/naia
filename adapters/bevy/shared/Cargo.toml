@@ -13,7 +13,10 @@ edition = "2021"
 maintenance = { status = "actively-developed" }
 
 [features]
+wbindgen = [ "naia-shared/wbindgen" ]
+# webrtc-lite = [ "naia-shared/webrtc-lite" ]
+# webrtc-full = [ "naia-shared/webrtc-full" ]
 
 [dependencies]
-naia-shared = { version = "0.14", path = "../../../shared", features = ["bevy_support", "wbindgen"] }
+naia-shared = { version = "0.14", path = "../../../shared", features = ["bevy_support"] }
 bevy_ecs = { version = "0.9", default-features=false }

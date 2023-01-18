@@ -7,8 +7,12 @@ cfg_if! {
         mod miniquad;
         pub use self::miniquad::*;
     }
-    else {
+    else if #[cfg(all(not(target_arch = "wasm32"), feature = "webrtc-lite"))] {
         mod native;
         pub use self::native::*;
+    }
+    else if #[cfg(all(not(target_arch = "wasm32"), feature = "webrtc-full"))] {
+        mod webrtc;
+        pub use self::webrtc::*;
     }
 }
