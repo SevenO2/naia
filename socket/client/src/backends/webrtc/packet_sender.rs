@@ -1,6 +1,6 @@
 use tokio::sync::mpsc::Sender;
-use webrtc_unreliable_client::{AddrCell, ServerAddr as RTCServerAddr};
 
+use crate::backends::webrtc::addr_cell::{AddrCell, ServerAddr as RTCServerAddr};
 use crate::server_addr::ServerAddr;
 
 /// Handles sending messages to the Server for a given Client Socket

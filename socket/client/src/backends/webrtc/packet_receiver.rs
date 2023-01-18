@@ -1,10 +1,11 @@
 use std::sync::{Arc, Mutex};
-use webrtc_unreliable_client::{AddrCell, ServerAddr as RTCServerAddr};
 
 use tokio::sync::mpsc::Receiver;
 
 use crate::{
-    error::NaiaClientSocketError, packet_receiver::PacketReceiverTrait, server_addr::ServerAddr,
+    error::NaiaClientSocketError, packet_receiver::PacketReceiverTrait,
+    server_addr::ServerAddr,
+    backends::webrtc::addr_cell::{AddrCell, ServerAddr as RTCServerAddr},
 };
 
 /// Handles receiving messages from the Server through a given Client Socket

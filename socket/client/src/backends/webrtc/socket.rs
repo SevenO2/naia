@@ -2,9 +2,11 @@ extern crate log;
 
 use naia_socket_shared::{parse_server_url, SocketConfig};
 
-use webrtc_unreliable_client::Socket as RTCSocket;
+use crate::backends::webrtc::{
+    rtc_socket::Socket as RTCSocket,
+    runtime::get_runtime
+};
 
-use crate::backends::native::runtime::get_runtime;
 use crate::{
     conditioned_packet_receiver::ConditionedPacketReceiver,
     io::Io,
