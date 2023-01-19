@@ -20,6 +20,7 @@ webrtc-lite = [ "webrtc-unreliable" ]
 webrtc-full = [ "webrtc" ]
 
 [dependencies]
+cfg-if = { version = "1.0" }
 naia-socket-shared = { version = "0.10", path = "../shared" }
 log = { version = "0.4" }
 futures-channel = { version = "0.3", features = ["sink"] }

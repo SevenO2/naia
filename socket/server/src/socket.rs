@@ -3,7 +3,8 @@ use smol::channel;
 
 use naia_socket_shared::SocketConfig;
 
-use crate::{async_socket::Socket as AsyncSocket, executor, io::Io};
+use crate::{executor, io::Io};
+use crate::AsyncSocket;
 
 use super::{
     conditioned_packet_receiver::ConditionedPacketReceiverImpl,

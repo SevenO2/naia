@@ -13,14 +13,31 @@
 
 extern crate log;
 
-mod async_socket;
+#[macro_use]
+extern crate cfg_if;
+
+cfg_if! {
+    if #[cfg(all(feature = "webrtc-lite"))] {
+        mod async_socket_lite;
+        use async_socket_lite::AsyncSocket;
+        mod session_lite;
+    }
+    else if #[cfg(all(feature = "webrtc-full"))] {
+        mod async_socket_full;
+        use async_socket_full::AsyncSocket;
+        mod session_full;
+    }
+    else {
+         compile_error!("Naia Server Socket on Native requires either the 'webrtc-lite' OR 'webrtc-full' feature to be enabled, you must pick one.");
+    }
+}
+
 mod conditioned_packet_receiver;
 mod error;
 mod io;
 mod packet_receiver;
 mod packet_sender;
 mod server_addrs;
-mod session;
 mod socket;
 
 /// Executor for Server

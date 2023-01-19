@@ -10,20 +10,20 @@ use naia_socket_shared::{parse_server_url, url_to_socket_addr, SocketConfig};
 
 use crate::{error::NaiaServerSocketError, server_addrs::ServerAddrs};
 
-use super::session::start_session_server;
+use super::session_full::start_session_server;
 
 const CLIENT_CHANNEL_SIZE: usize = 8;
 
 /// A socket which communicates with clients using an underlying
 /// unordered & unreliable network protocol
 
-pub struct Socket {
+pub struct AsyncSocket {
     rtc_server: RtcServer,
     to_client_sender: mpsc::Sender<(SocketAddr, Box<[u8]>)>,
     to_client_receiver: mpsc::Receiver<(SocketAddr, Box<[u8]>)>,
 }
 
-impl Socket {
+impl AsyncSocket {
     /// Returns a new ServerSocket, listening at the given socket address
     pub async fn listen(server_addrs: ServerAddrs, config: SocketConfig) -> Self {
         let (to_client_sender, to_client_receiver) = mpsc::channel(CLIENT_CHANNEL_SIZE);
@@ -34,7 +34,7 @@ impl Socket {
         )
         .await;
 
-        let socket = Socket {
+        let socket = AsyncSocket {
             rtc_server,
             to_client_sender,
             to_client_receiver,
