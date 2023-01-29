@@ -17,7 +17,7 @@ maintenance = { status = "actively-developed" }
 
 [features]
 webrtc-lite = [ "webrtc-unreliable-client" ]
-webrtc-full = [ "webrtc", "tinyjson", "bytes", "reqwest" ]
+webrtc-full = [ "webrtc", "naia-socket-shared/webrtc-full", "tinyjson", "bytes", "reqwest" ]
 wbindgen = [ "naia-socket-shared/wbindgen", "wasm-bindgen", "js-sys", "web_sys", "tinyjson" ]
 mquad = [ "naia-socket-shared/mquad", "miniquad" ]
 

@@ -25,7 +25,7 @@ cfg_if! {
     else if #[cfg(all(feature = "webrtc-full"))] {
         mod async_socket_full;
         use async_socket_full::AsyncSocket;
-        mod session_full;
+        // mod session_full;
     }
     else {
          compile_error!("Naia Server Socket on Native requires either the 'webrtc-lite' OR 'webrtc-full' feature to be enabled, you must pick one.");

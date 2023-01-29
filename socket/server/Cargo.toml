@@ -17,18 +17,24 @@ maintenance = { status = "actively-developed" }
 
 [features]
 webrtc-lite = [ "webrtc-unreliable" ]
-webrtc-full = [ "webrtc" ]
+webrtc-full = [ "webrtc", "naia-socket-shared/webrtc-full", "bytes" ]
 
 [dependencies]
+anyhow = { version = "1.0.68" }
 cfg-if = { version = "1.0" }
 naia-socket-shared = { version = "0.10", path = "../shared" }
 log = { version = "0.4" }
+thiserror = { version = "1.0.38" }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-core = { version = "0.3" }
 futures-util = { version = "0.3", features = ["sink"] }
+async-io = { version = "1.12.0" }
 smol = { version = "1.2.4" }
 once_cell = { version = "1.4.1" }
+concurrent-queue = { version = "2.1.0" }
 webrtc-unreliable = { version = "0.5.2", optional = true }
 webrtc = { version = "0.6.0", optional = true }
+bytes = { version = "1.2.1", optional = true }
+# hashbrown = { version = "0.12.3", optional = true }
 async-dup = { version = "1.2.2" }
 http = { version = "0.2" }

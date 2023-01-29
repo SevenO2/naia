@@ -16,6 +16,11 @@ extern crate cfg_if;
 /// conditions
 pub mod link_condition_logic;
 
+#[cfg(all(not(target_arch = "wasm32"), feature = "webrtc-full"))]
+pub use backends::rtc_peer;
+// pub mod signaling;
+
+
 mod backends;
 mod link_conditioner_config;
 mod socket_config;
@@ -40,3 +45,16 @@ cfg_if! {
         compile_error!("wasm target for 'naia_socket_shared' crate requires either the 'wbindgen' or 'mquad' feature to be enabled, you must pick one.");
     }
 }
+
+// cfg_if! {
+//     if #[cfg(all(not(target_arch = "wasm32"), feature = "webrtc-lite", feature = "webrtc-full"))]
+//     {
+//         // Use both protocols...
+//         compile_error!("Naia Socket Shared on Native requires either the 'webrtc-lite' OR 'webrtc-full' feature to be enabled, you must pick one.");
+//     }
+//     else if #[cfg(all(not(target_arch = "wasm32"), not(feature = "webrtc-lite"), not(feature = "webrtc-full")))]
+//     {
+//         // Use no protocols...
+//         compile_error!("Naia Socket Shared on Native requires either the 'webrtc-lite' or 'webrtc-full' feature to be enabled, you must pick one.");
+//     }
+// }
