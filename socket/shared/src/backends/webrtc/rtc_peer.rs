@@ -85,6 +85,9 @@ where T: std::fmt::Debug {
 
         (Self {tx: send1, rx: recv2}, Self {tx: send2, rx: recv1})
     }
+    // pub fn once(func: FnOnce(RTCSessionDescription) -> RTCSessionDescription) -> (SignalingChannel)
+    // pub fn once(func: impl Future<RTCSessionDescription>) -> (SignalingChannel)
+
     pub fn send(&self, value: T) -> Result<()> {
         self.tx.try_send(value).map_err(|e| err!("{}", e))
     }

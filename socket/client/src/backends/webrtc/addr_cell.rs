@@ -29,6 +29,10 @@ impl AddrCell {
         let mut cell = self.cell.lock().await;
         cell.0 = candidate_to_addr(candidate_str);
     }
+    pub async fn set(&self, addr: SocketAddr) {
+        let mut cell = self.cell.lock().await;
+        cell.0 = ServerAddr::Found(addr);
+    }
 
     pub fn get(&self) -> ServerAddr {
         match self.cell.try_lock() {

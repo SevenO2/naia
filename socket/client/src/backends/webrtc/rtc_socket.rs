@@ -1,4 +1,5 @@
 use std::{sync::Arc, time::Duration};
+use std::net::{SocketAddr, Ipv4Addr};
 
 use anyhow::{Error, Result};
 use bytes::Bytes;
@@ -15,11 +16,13 @@ use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 
 use naia_socket_shared::rtc_peer;
+use rtc_peer::*;
 // use rtc_peer::{
 //     SignalingChannel, RTCPeerConnection, RTCDataChannel, RTCIceServer, RTCSessionDescription, RTCSettingEngine
 // };
 
 use crate::backends::webrtc::addr_cell::AddrCell;
+use crate::backends::webrtc::runtime;
 
 const MESSAGE_SIZE: usize = 1500;
 const CLIENT_CHANNEL_SIZE: usize = 8;
@@ -30,27 +33,168 @@ impl Socket {
     pub async fn connect(
         server_url: &str,
     ) -> (AddrCell, mpsc::Sender<Box<[u8]>>, mpsc::Receiver<Box<[u8]>>) {
-        let (to_server_sender, to_server_receiver) =
-            mpsc::channel::<Box<[u8]>>(CLIENT_CHANNEL_SIZE);
-        let (to_client_sender, to_client_receiver) =
-            mpsc::channel::<Box<[u8]>>(CLIENT_CHANNEL_SIZE);
-
         let addr_cell = AddrCell::default();
+        let (channel_setup, to_server_sender, to_client_receiver)
+            = channel_setup_fn();
+
+        let mut settings = RTCSettingEngine::default();
+        settings.detach_data_channels();
 
         // create a new RTCPeerConnection
-        let peer_connection = new_peer(fallback_ice_servers())
+        let (peer_connection, _) = new_peer(fallback_ice_servers(), Some(settings))
             .await.expect("configuring peer_connection");
 
-        let label = "data";
-        // TODO: config unreliable: Some(RTCDataChannelInit {})
-        let protocol = None;
+        let (mut sig1, sig2) = SignalingChannel::pair(1);
 
-        // create a datachannel with label 'data'
-        let data_channel = peer_connection
-            .create_data_channel(label, protocol)
-            .await
-            .expect("cannot create data channel");
+        let signaling_join = runtime::get_runtime().spawn(async move {
+            let offer = sig1.recv().await?;
+            let answer = stdio_signal_once(offer).await?;
+            sig1.send(answer)?;
+            anyhow::Ok(())
+        });
 
+        create_channel(
+            &peer_connection,
+            sig2,
+            None,
+            channel_setup
+        ).await.expect("creating data_channel");
+        signaling_join.await.expect("stdio signaling complete");
+
+
+        // TODO: extract SocketAddr of remote from stats
+        println!("{:?}", peer_connection.get_stats().await);
+        let remote_candidate = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
+
+        // TODO: optional? fake? maybe just replace entirely with shared code
+        addr_cell
+            .set(remote_candidate)
+            .await;
+
+        (addr_cell, to_server_sender, to_client_receiver)
+    }
+
+    // pub async fn connect(
+    //     server_url: &str,
+    // ) -> (AddrCell, mpsc::Sender<Box<[u8]>>, mpsc::Receiver<Box<[u8]>>) {
+    //     let (to_server_sender, to_server_receiver) =
+    //         mpsc::channel::<Box<[u8]>>(CLIENT_CHANNEL_SIZE);
+    //     let (to_client_sender, to_client_receiver) =
+    //         mpsc::channel::<Box<[u8]>>(CLIENT_CHANNEL_SIZE);
+
+    //     let addr_cell = AddrCell::default();
+
+    //     // create a new RTCPeerConnection
+    //     let peer_connection = new_peer(fallback_ice_servers())
+    //         .await.expect("configuring peer_connection");
+
+    //     let label = "data";
+    //     // TODO: config unreliable: Some(RTCDataChannelInit {})
+    //     let protocol = None;
+
+    //     // create a datachannel with label 'data'
+    //     let data_channel = peer_connection
+    //         .create_data_channel(label, protocol)
+    //         .await
+    //         .expect("cannot create data channel");
+
+    //     // datachannel on_error callback
+    //     data_channel
+    //         .on_error(Box::new(move |error| {
+    //             error!("data channel error: {:?}", error);
+    //             Box::pin(async {})
+    //         }));
+
+    //     // datachannel on_open callback
+    //     let data_channel_ref = Arc::clone(&data_channel);
+    //     data_channel
+    //         .on_open(Box::new(move || {
+    //             let data_channel_ref_2 = Arc::clone(&data_channel_ref);
+    //             Box::pin(async move {
+    //                 let detached_data_channel = data_channel_ref_2
+    //                     .detach()
+    //                     .await
+    //                     .expect("data channel detach got error");
+
+    //                 // Handle reading from the data channel
+    //                 let detached_data_channel_1 = Arc::clone(&detached_data_channel);
+    //                 let detached_data_channel_2 = Arc::clone(&detached_data_channel);
+    //                 tokio::spawn(async move {
+    //                     let _loop_result =
+    //                         read_loop(detached_data_channel_1, to_client_sender).await;
+    //                     // do nothing with result, just close thread
+    //                 });
+
+    //                 // Handle writing to the data channel
+    //                 tokio::spawn(async move {
+    //                     let _loop_result =
+    //                         write_loop(detached_data_channel_2, to_server_receiver).await;
+    //                     // do nothing with result, just close thread
+    //                 });
+    //             })
+    //         }));
+
+    //     // create an offer to send to the server
+    //     let offer = peer_connection
+    //         .create_offer(None)
+    //         .await
+    //         .expect("cannot create offer");
+
+    //     // sets the LocalDescription, and starts our UDP listeners
+    //     peer_connection
+    //         .set_local_description(offer)
+    //         .await
+    //         .expect("cannot set local description");
+
+    //     let offer = peer_connection.local_description().await.unwrap();
+
+    //     // let (sig1, sig2) = SignalingChannel::pair(1);
+
+    //     // Send a request to server to initiate connection (signaling, essentially)
+    //     let (answer, candidate) = http_signal_once(server_url, offer)
+    //         .await
+    //         .expect("offer/answer signaling");
+    //     // TODO
+    //     // let answer = stdio_signal_once(offer)
+    //     //     .await
+    //     //     .expect("offer/answer signaling");
+
+    //     // apply the server's response as the remote description
+    //     peer_connection
+    //         .set_remote_description(answer)
+    //         .await
+    //         .expect("cannot set remote description");
+
+    //     // TODO: optional? fake? maybe just replace entirely with shared code
+    //     addr_cell
+    //         .receive_candidate(candidate.candidate.as_str())
+    //         .await;
+
+    //     // add ice candidate to connection
+    //     if let Err(error) = peer_connection.add_ice_candidate(candidate).await {
+    //         panic!("Error during add_ice_candidate: {:?}", error);
+    //     }
+
+    //     (addr_cell, to_server_sender, to_client_receiver)
+    // }
+}
+
+fn fallback_ice_servers() -> Vec<RTCIceServer> {
+    vec![RTCIceServer { // backup
+        urls: vec!["stun:stun.l.google.com:19302".to_owned()],
+        ..Default::default()
+    }]
+}
+
+
+pub fn channel_setup_fn()
+-> (impl FnOnce(Arc<RTCDataChannel>), mpsc::Sender<Box<[u8]>>, mpsc::Receiver<Box<[u8]>>) {
+    let (to_server_sender, to_server_receiver) =
+            mpsc::channel::<Box<[u8]>>(CLIENT_CHANNEL_SIZE);
+    let (to_client_sender, to_client_receiver) =
+        mpsc::channel::<Box<[u8]>>(CLIENT_CHANNEL_SIZE);
+
+    let func = |data_channel: Arc<RTCDataChannel>| {
         // datachannel on_error callback
         data_channel
             .on_error(Box::new(move |error| {
@@ -86,59 +230,10 @@ impl Socket {
                     });
                 })
             }));
+    };
 
-        // create an offer to send to the server
-        let offer = peer_connection
-            .create_offer(None)
-            .await
-            .expect("cannot create offer");
-
-        // sets the LocalDescription, and starts our UDP listeners
-        peer_connection
-            .set_local_description(offer)
-            .await
-            .expect("cannot set local description");
-
-        let offer = peer_connection.local_description().await.unwrap();
-
-        // let (sig1, sig2) = SignalingChannel::pair(1);
-
-        // Send a request to server to initiate connection (signaling, essentially)
-        let (answer, candidate) = http_signal_once(server_url, offer)
-            .await
-            .expect("offer/answer signaling");
-        // TODO
-        // let answer = rtc_peer::stdio_signal_once(offer)
-        //     .await
-        //     .expect("offer/answer signaling");
-
-        // apply the server's response as the remote description
-        peer_connection
-            .set_remote_description(answer)
-            .await
-            .expect("cannot set remote description");
-
-        // TODO: optional? fake? maybe just replace entirely with shared code
-        addr_cell
-            .receive_candidate(candidate.candidate.as_str())
-            .await;
-
-        // add ice candidate to connection
-        if let Err(error) = peer_connection.add_ice_candidate(candidate).await {
-            panic!("Error during add_ice_candidate: {:?}", error);
-        }
-
-        (addr_cell, to_server_sender, to_client_receiver)
-    }
+    (func, to_server_sender, to_client_receiver)
 }
-
-fn fallback_ice_servers() -> Vec<RTCIceServer> {
-    vec![RTCIceServer { // backup
-        urls: vec!["stun:stun.l.google.com:19302".to_owned()],
-        ..Default::default()
-    }]
-}
-
 
 // pub async fn http_signaling_once(signaling: SignalingChannel) -> Result<()> {
 pub async fn http_signal_once(server_url: &str, offer: RTCSessionDescription)
@@ -179,43 +274,43 @@ pub async fn http_signal_once(server_url: &str, offer: RTCSessionDescription)
 
 
 // TODO: use shared code
-async fn new_peer(ice_servers: Vec<RTCIceServer>)
--> Result<Arc<RTCPeerConnection>> {
-    // TODO: config api (registry) (settings engine)?
-    //       rtcp (control protocol)
-    //       twcc (congestion control)
+// async fn new_peer(ice_servers: Vec<RTCIceServer>)
+// -> Result<Arc<RTCPeerConnection>> {
+//     // TODO: config api (registry) (settings engine)?
+//     //       rtcp (control protocol)
+//     //       twcc (congestion control)
 
-    // Create the API object with the MediaEngine
-    let api = webrtc::api::APIBuilder::new()
-        .build();
+//     // Create the API object with the MediaEngine
+//     let api = webrtc::api::APIBuilder::new()
+//         .build();
 
-    // Prepare the configuration
-    let config = RTCConfiguration {
-        ice_servers,
-        ..Default::default()
-    };
+//     // Prepare the configuration
+//     let config = RTCConfiguration {
+//         ice_servers,
+//         ..Default::default()
+//     };
 
-    // Create a new RTCPeerConnection
-    let peer_connection = Arc::new(api.new_peer_connection(config).await?);
+//     // Create a new RTCPeerConnection
+//     let peer_connection = Arc::new(api.new_peer_connection(config).await?);
 
 
-    // Set the handler for Peer connection state
-    // This will notify you when the peer has connected/disconnected
-    peer_connection.on_peer_connection_state_change(Box::new(move |s: RTCPeerConnectionState| {
-        info!("Peer Connection State has changed: {}", s);
+//     // Set the handler for Peer connection state
+//     // This will notify you when the peer has connected/disconnected
+//     peer_connection.on_peer_connection_state_change(Box::new(move |s: RTCPeerConnectionState| {
+//         info!("Peer Connection State has changed: {}", s);
 
-        if s == RTCPeerConnectionState::Failed {
-            // Wait until PeerConnection has had no network activity for 30 seconds or another failure. It may be reconnected using an ICE Restart.
-            // Use webrtc.PeerConnectionStateDisconnected if you are interested in detecting faster timeout.
-            // Note that the PeerConnection may come back from PeerConnectionStateDisconnected.
-            warn!("Peer Connection has gone to failed exiting");
-        }
+//         if s == RTCPeerConnectionState::Failed {
+//             // Wait until PeerConnection has had no network activity for 30 seconds or another failure. It may be reconnected using an ICE Restart.
+//             // Use webrtc.PeerConnectionStateDisconnected if you are interested in detecting faster timeout.
+//             // Note that the PeerConnection may come back from PeerConnectionStateDisconnected.
+//             warn!("Peer Connection has gone to failed exiting");
+//         }
 
-        Box::pin(async {})
-    }));
+//         Box::pin(async {})
+//     }));
 
-    Ok(peer_connection)
-}
+//     Ok(peer_connection)
+// }
 
 // read_loop shows how to read from the datachannel directly
 async fn read_loop(
