@@ -228,13 +228,13 @@ pub async fn join_channel(
 }
 
 
-pub async fn stdio_signal_listener(signaling: SignalingChannel) -> Result<((),())> {
+pub async fn stdio_signal_listener(signaling: SignalingChannel) -> Result<()> {
     let (line_tx, line_rx) = async_channel::bounded::<Result<String>>(1);
     std::thread::Builder::new().name("stdio_signal_listener".into()).spawn(move || {
         loop {
             // TODO: figure out how to poison this thread when the outer function returns
             // (As is, if the outer function returns, this will fail after newline read)
-            println!("Awaiting next offer. Copy-paste here:");
+            println!("Awaiting next offer... Copy-paste here:");
             if line_tx.try_send(util::must_read_stdin()).is_err() { return }
         }
     })?;
@@ -254,3 +254,24 @@ pub async fn stdio_signal_listener(signaling: SignalingChannel) -> Result<((),()
     }
 }
 
+
+
+// pub async fn stdio_signaling_once(signaling: SignalingChannel) -> Result<()> {
+pub async fn stdio_signal_once(offer: RTCSessionDescription) -> Result<RTCSessionDescription> {
+    // let offer = signaling.rx.recv().await.context("RTCSessionDescription to stdout")?;
+
+    debug!("offer: {:?}", offer);
+    let json_str = serde_json::to_string(&offer)?;
+    let b64 = util::encode(&json_str);
+    println!("{}", b64);
+
+    println!();
+    println!("Awaiting answer... Copy-paste here:");
+    let line = util::must_read_stdin()?;
+    let desc_data = util::decode(line.as_str())?;
+    let answer = serde_json::from_str::<RTCSessionDescription>(&desc_data)?;
+
+    // signaling.tx.try_send(answer).context("RTCSessionDescription from stdin")?;
+
+    Ok(answer)
+}

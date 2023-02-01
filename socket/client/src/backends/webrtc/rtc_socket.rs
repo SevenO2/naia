@@ -2,17 +2,22 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::{Error, Result};
 use bytes::Bytes;
-use log::{warn, info};
+use log::*;
 use reqwest::{Client as HttpClient, Response};
 use tinyjson::JsonValue;
 use tokio::{sync::mpsc, time::sleep};
 
 use webrtc::data::data_channel::DataChannel;
-use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
+use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::peer_connection::{sdp::session_description::RTCSessionDescription, RTCPeerConnection};
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
+
+use naia_socket_shared::rtc_peer;
+// use rtc_peer::{
+//     SignalingChannel, RTCPeerConnection, RTCDataChannel, RTCIceServer, RTCSessionDescription, RTCSettingEngine
+// };
 
 use crate::backends::webrtc::addr_cell::AddrCell;
 
@@ -49,7 +54,7 @@ impl Socket {
         // datachannel on_error callback
         data_channel
             .on_error(Box::new(move |error| {
-                println!("data channel error: {:?}", error);
+                error!("data channel error: {:?}", error);
                 Box::pin(async {})
             }));
 
@@ -94,53 +99,32 @@ impl Socket {
             .await
             .expect("cannot set local description");
 
-        // send a request to server to initiate connection (signaling, essentially)
-        let http_client = HttpClient::new();
+        let offer = peer_connection.local_description().await.unwrap();
 
-        let sdp = peer_connection.local_description().await.unwrap().sdp;
+        // let (sig1, sig2) = SignalingChannel::pair(1);
 
-        let sdp_len = sdp.len();
-
-        // wait to receive a response from server
-        let response: Response = loop {
-            let request = http_client
-                .post(server_url)
-                .header("Content-Length", sdp_len)
-                .body(sdp.clone());
-
-            match request.send().await {
-                Ok(resp) => {
-                    break resp;
-                }
-                Err(err) => {
-                    warn!("Could not send request, original error: {:?}", err);
-                    sleep(Duration::from_secs(1)).await;
-                }
-            };
-        };
-        let response_string = response.text().await.unwrap();
-
-        // parse session from server response
-        let session_response: JsSessionResponse = get_session_response(response_string.as_str());
+        // Send a request to server to initiate connection (signaling, essentially)
+        let (answer, candidate) = http_signal_once(server_url, offer)
+            .await
+            .expect("offer/answer signaling");
+        // TODO
+        // let answer = rtc_peer::stdio_signal_once(offer)
+        //     .await
+        //     .expect("offer/answer signaling");
 
         // apply the server's response as the remote description
-        let session_description =
-            RTCSessionDescription::answer(session_response.answer.sdp).unwrap();
-
         peer_connection
-            .set_remote_description(session_description)
+            .set_remote_description(answer)
             .await
             .expect("cannot set remote description");
 
+        // TODO: optional? fake? maybe just replace entirely with shared code
         addr_cell
-            .receive_candidate(session_response.candidate.candidate.candidate.as_str())
+            .receive_candidate(candidate.candidate.as_str())
             .await;
 
         // add ice candidate to connection
-        if let Err(error) = peer_connection
-            .add_ice_candidate(session_response.candidate.candidate)
-            .await
-        {
+        if let Err(error) = peer_connection.add_ice_candidate(candidate).await {
             panic!("Error during add_ice_candidate: {:?}", error);
         }
 
@@ -155,6 +139,46 @@ fn fallback_ice_servers() -> Vec<RTCIceServer> {
     }]
 }
 
+
+// pub async fn http_signaling_once(signaling: SignalingChannel) -> Result<()> {
+pub async fn http_signal_once(server_url: &str, offer: RTCSessionDescription)
+-> Result<(RTCSessionDescription, RTCIceCandidateInit)> {
+    let http_client = HttpClient::new();
+
+    // let offer = signaling.rx.recv().await.context("RTCSessionDescription to stdout")?;
+
+    let sdp = offer.sdp;
+    let sdp_len = sdp.len();
+
+    // wait to receive a response from server
+    let response: Response = loop {
+        let request = http_client
+            .post(server_url)
+            .header("Content-Length", sdp_len)
+            .body(sdp.clone());
+
+        match request.send().await {
+            Ok(resp) => {
+                break resp;
+            }
+            Err(err) => {
+                warn!("Could not send request, original error: {:?}", err);
+                sleep(Duration::from_secs(1)).await;
+            }
+        };
+    };
+    let response_string = response.text().await?;
+
+    // parse session from server response
+    let session_response: JsSessionResponse = get_session_response(response_string.as_str());
+    let answer = RTCSessionDescription::answer(session_response.answer.sdp)?;
+
+    // signaling.tx.try_send(answer).context("RTCSessionDescription from stdin")?;
+    Ok((answer, session_response.candidate.candidate))
+}
+
+
+// TODO: use shared code
 async fn new_peer(ice_servers: Vec<RTCIceServer>)
 -> Result<Arc<RTCPeerConnection>> {
     // TODO: config api (registry) (settings engine)?
@@ -203,7 +227,7 @@ async fn read_loop(
         let message_length = match data_channel.read(&mut buffer).await {
             Ok(length) => length,
             Err(err) => {
-                println!("Datachannel closed; Exit the read_loop: {}", err);
+                warn!("Datachannel closed; Exit the read_loop: {}", err);
                 return Ok(());
             }
         };
