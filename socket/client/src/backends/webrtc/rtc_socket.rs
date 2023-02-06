@@ -6,7 +6,7 @@ use bytes::Bytes;
 use log::*;
 use reqwest::{Client as HttpClient, Response};
 use tinyjson::JsonValue;
-use tokio::{sync::mpsc, time::sleep};
+use tokio::{sync::mpsc, sync::oneshot, time::sleep};
 
 use webrtc::data::data_channel::DataChannel;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
@@ -34,7 +34,7 @@ impl Socket {
         server_url: &str,
     ) -> (AddrCell, mpsc::Sender<Box<[u8]>>, mpsc::Receiver<Box<[u8]>>) {
         let addr_cell = AddrCell::default();
-        let (channel_setup, to_server_sender, to_client_receiver)
+        let (channel_setup, channel_ready, to_server_sender, to_client_receiver)
             = channel_setup_fn();
 
         let mut settings = RTCSettingEngine::default();
@@ -54,23 +54,27 @@ impl Socket {
         });
 
         create_channel(
-            &peer_connection,
+            Arc::clone(&peer_connection),
             sig2,
             None,
             channel_setup
         ).await.expect("creating data_channel");
         signaling_join.await.expect("stdio signaling complete");
+        channel_ready.await.expect("data_channel ready");
 
+        // FIXME: data_channel isn't finalized at this point.
+        //        need to await a signal from on_open()
 
-        // TODO: extract SocketAddr of remote from stats
-        println!("{:?}", peer_connection.get_stats().await);
-        let remote_candidate = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
+        let remote_candidate = get_nominated_candidate(&peer_connection).await.expect("get_nominated_candidate").remote_addr();
+        // let remote_candidate = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
+        info!("Connected to {}", remote_candidate);
 
-        // TODO: optional? fake? maybe just replace entirely with shared code
         addr_cell
             .set(remote_candidate)
             .await;
 
+
+        // TODO: save or return peer_connection
         (addr_cell, to_server_sender, to_client_receiver)
     }
 
@@ -187,14 +191,21 @@ fn fallback_ice_servers() -> Vec<RTCIceServer> {
 }
 
 
-pub fn channel_setup_fn()
--> (impl FnOnce(Arc<RTCDataChannel>), mpsc::Sender<Box<[u8]>>, mpsc::Receiver<Box<[u8]>>) {
+pub fn channel_setup_fn() -> (
+    impl FnOnce(Arc<RTCPeerConnection>, Arc<RTCDataChannel>),
+    oneshot::Receiver<()>,
+    mpsc::Sender<Box<[u8]>>,
+    mpsc::Receiver<Box<[u8]>>
+) {
     let (to_server_sender, to_server_receiver) =
             mpsc::channel::<Box<[u8]>>(CLIENT_CHANNEL_SIZE);
     let (to_client_sender, to_client_receiver) =
         mpsc::channel::<Box<[u8]>>(CLIENT_CHANNEL_SIZE);
 
-    let func = |data_channel: Arc<RTCDataChannel>| {
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    // let func = |_peer, data_channel| {
+    let func = |_peer: Arc<RTCPeerConnection>, data_channel: Arc<RTCDataChannel>| {
         // datachannel on_error callback
         data_channel
             .on_error(Box::new(move |error| {
@@ -206,6 +217,8 @@ pub fn channel_setup_fn()
         let data_channel_ref = Arc::clone(&data_channel);
         data_channel
             .on_open(Box::new(move || {
+                ready_tx.send(()).unwrap();
+
                 let data_channel_ref_2 = Arc::clone(&data_channel_ref);
                 Box::pin(async move {
                     let detached_data_channel = data_channel_ref_2
@@ -232,7 +245,7 @@ pub fn channel_setup_fn()
             }));
     };
 
-    (func, to_server_sender, to_client_receiver)
+    (func, ready_rx, to_server_sender, to_client_receiver)
 }
 
 // pub async fn http_signaling_once(signaling: SignalingChannel) -> Result<()> {

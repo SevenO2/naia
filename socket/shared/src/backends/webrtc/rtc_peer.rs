@@ -1,5 +1,7 @@
 
 use std::sync::Arc;
+use std::str::FromStr;
+use std::net::{SocketAddr, IpAddr};
 
 use anyhow::{Result, Context, anyhow as err};
 use log::*;
@@ -162,20 +164,20 @@ async fn set_local_desc(peer_connection: &RTCPeerConnection, desc: RTCSessionDes
 
 // TODO: trickle ICE, onicecandidate || signaler.send()
 pub async fn create_channel(
-    peer_connection: &RTCPeerConnection,
+    peer_connection: Arc<RTCPeerConnection>,
     mut signaling: SignalingChannel,
     config: Option<RTCDataChannelInit>,
-    setup: impl FnOnce(Arc<RTCDataChannel>)
+    setup: impl FnOnce(Arc<RTCPeerConnection>, Arc<RTCDataChannel>)
 ) -> Result<()> {
     // Create a datachannel with label 'data'
     let data_channel = peer_connection.create_data_channel("data", config).await?;
 
-    setup(data_channel);
+    setup(Arc::clone(&peer_connection), data_channel);
 
     // Create an offer to send to the browser
     let offer = peer_connection.create_offer(None).await?;
 
-    set_local_desc(peer_connection, offer).await?;
+    set_local_desc(&peer_connection, offer).await?;
 
     // Output the answer in base64 so we can paste it in browser
     if let Some(local_desc) = peer_connection.local_description().await {
@@ -196,17 +198,19 @@ pub async fn create_channel(
 // TODO: trickle ICE, onicecandidate || signaler.send()
 // TODO: cleanup `setup` type. Maybe we can stash in Arc to avoid constraints
 pub async fn join_channel(
-    peer_connection: &RTCPeerConnection,
+    peer_connection: Arc<RTCPeerConnection>,
     mut signaling: SignalingChannel,
-    setup: impl FnOnce(Arc<RTCDataChannel>) + Send + Sync + Clone + 'static
+    setup: impl FnOnce(Arc<RTCPeerConnection>, Arc<RTCDataChannel>) + Send + Sync + Clone + 'static
 ) -> Result<()> {
+    let peer_clone = Arc::clone(&peer_connection);
+
     // Register data channel creation handling
     peer_connection
         .on_data_channel(Box::new(move |d: Arc<RTCDataChannel>| {
             let setup = setup.clone();
-            Box::pin(async move {
-                setup(Arc::clone(&d));
-            })
+            setup(Arc::clone(&peer_clone), Arc::clone(&d));
+
+            Box::pin(async move {})
         }));
 
     // Wait for the offer to be pasted
@@ -218,7 +222,7 @@ pub async fn join_channel(
     // Create an answer
     let answer = peer_connection.create_answer(None).await?;
 
-    set_local_desc(peer_connection, answer).await?;
+    set_local_desc(&peer_connection, answer).await?;
 
     // Output the answer in base64 so we can paste it in browser
     if let Some(local_desc) = peer_connection.local_description().await {
@@ -277,4 +281,44 @@ pub async fn stdio_signal_once(offer: RTCSessionDescription) -> Result<RTCSessio
     // signaling.tx.try_send(answer).context("RTCSessionDescription from stdin")?;
 
     Ok(answer)
+}
+
+pub struct CandidatePair {
+    pub local: ICECandidateStats,
+    pub remote: ICECandidateStats,
+    pair: ICECandidatePairStats, // TODO: maybe not too helpful. ping?
+}
+impl CandidatePair {
+    pub fn remote_addr(&self) -> SocketAddr {
+        (IpAddr::from_str(&self.remote.ip).unwrap(), self.remote.port).into()
+    }
+}
+
+use webrtc::stats::*;
+// use webrtc::stats::StatsReportType as StatType;
+
+// TODO: we could potentially await data channel has opened here to better enforce
+pub async fn get_nominated_candidate(peer_connection: &RTCPeerConnection) -> Option<CandidatePair> {
+    let mut stats = peer_connection.get_stats().await.reports;
+
+    // Stats aren't clone, so I'm finagling ownership here. drain_filter() would be better
+    let mut nominated = stats.iter().filter_map(|(id, stat)| match stat {
+        StatsReportType::CandidatePair(pair_stats) if pair_stats.nominated => Some(id.to_owned()),
+        _ => None,
+    }).collect::<Vec<_>>().into_iter().map(|id| match stats.remove(&id).unwrap() {
+        StatsReportType::CandidatePair(pair_stats) => pair_stats,
+        _ => unreachable!(),
+    }).collect::<Vec<_>>().into_iter();
+
+    match (nominated.next(), nominated.next()) {
+        (Some(_), Some(_)) => panic!("multiple nominated candidate pairs"),
+        (Some(pair), None) => Some(CandidatePair {
+            local: match stats.remove(&pair.local_candidate_id).unwrap() {
+                StatsReportType::LocalCandidate(candidate) => candidate, _ => unreachable!() },
+            remote: match stats.remove(&pair.remote_candidate_id).unwrap() {
+                StatsReportType::RemoteCandidate(candidate) => candidate, _ => unreachable!() },
+            pair,
+        }),
+        _ => None
+    }
 }

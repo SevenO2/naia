@@ -10,8 +10,8 @@ publish = false
 
 
 [features]
-webrtc-lite = [ "naia-bevy-server/webrtc-lite" ]
-webrtc-full = [ "naia-bevy-server/webrtc-full" ]
+webrtc-lite = ["naia-bevy-server/webrtc-lite"]
+webrtc-full = ["naia-bevy-server/webrtc-full"]
 
 [dependencies]
 naia-bevy-demo-shared = { path = "../shared" }

@@ -2,6 +2,7 @@ use std::{future::Future, panic::catch_unwind, thread};
 
 use once_cell::sync::Lazy;
 use smol::{block_on, future, Executor, Task};
+use async_compat::Compat;
 
 /// TODO: make description
 pub fn spawn<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static) -> Task<T> {
@@ -10,7 +11,7 @@ pub fn spawn<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static
             thread::Builder::new()
                 .name(format!("smol-{}", n))
                 .spawn(|| loop {
-                    catch_unwind(|| block_on(GLOBAL.run(future::pending::<()>()))).ok();
+                    catch_unwind(|| block_on(Compat::new(GLOBAL.run(future::pending::<()>())))).ok();
                 })
                 .expect("cannot spawn executor thread");
         }

@@ -1,4 +1,4 @@
-use std::{num::NonZeroU16, time::Duration, net::SocketAddr, sync::Arc};
+use std::{time::Duration, net::SocketAddr, sync::Arc};
 // use std::{fmt::Display, io::Error as IoError};
 use std::collections::HashMap;
 
@@ -88,7 +88,7 @@ impl AsyncSocket {
                         Next::FromClientMessage(
                             match from_client_result {
                                 Ok(packet) => {
-                                    Ok((packet.fake_socket(), packet.copy_data()))
+                                    Ok((packet.remote_addr, packet.copy_data()))
                                 }
                                 Err(err) => { Err(err) }
                             }
@@ -116,7 +116,7 @@ impl AsyncSocket {
                     if rtc_server.send(RtcPacket {
                         is_string: false,
                         data: payload.into(),
-                        remote_id: address.port().try_into().expect("address port must be non-zero"),
+                        remote_addr: address,
                     }).await.is_err() {
                         return Err(NaiaServerSocketError::SendError(address));
                     }
@@ -150,8 +150,8 @@ enum RtcPeerError {
     ChannelInit,
     #[error("RtcPeer recv() failed: channel closed")]
     ChannelReceive,
-    #[error("RtcPeer not found for id: {0}")]
-    Missing(u16),
+    #[error("RtcPeer not found for address: {0}")]
+    Missing(SocketAddr),
     #[error("RtcPeer closed")]
     Closed,
     #[error(transparent)]
@@ -170,7 +170,7 @@ impl Clone for RtcPeerError {
 
 
 struct RtcPeer {
-    remote_id: NonZeroU16,
+    remote_addr: SocketAddr,
     connection: Arc<RTCPeerConnection>,
     channel: Arc<RTCDataChannel>,
 }
@@ -263,23 +263,23 @@ impl<T> ChannelQueue<T> {
 struct RtcPacket {
     is_string: bool,
     data: bytes::Bytes,
-    remote_id: NonZeroU16,
+    remote_addr: SocketAddr,
 }
 impl RtcPacket {
     fn copy_data(&self) -> Box<[u8]> {
         // Vec::from(self.data).into_boxed_slice() // TODO: does this take? alias?
         self.data.to_vec().into_boxed_slice()
     }
-    fn fake_socket(&self) -> SocketAddr {
-        SocketAddr::new(std::net::Ipv4Addr::UNSPECIFIED.into(), self.remote_id.get())
-    }
+    // fn fake_socket(&self) -> SocketAddr {
+    //     SocketAddr::new(std::net::Ipv4Addr::UNSPECIFIED.into(), self.remote_id.get())
+    // }
 }
 
 // struct RtcSessionListener {}
 
 struct RtcServer {
     // inner: Vec<RtcPeer>
-    active_sessions: HashMap<NonZeroU16, RtcPeerResult<RtcPeer>>,
+    active_sessions: HashMap<SocketAddr, RtcPeerResult<RtcPeer>>,
     new_sessions: ChannelQueue<RtcPeerResult<RtcPeer>>,
     periodic_timer: async_io::Timer, // TODO: see if this starves other events under load
     incoming_offers: SignalingChannel,
@@ -318,7 +318,7 @@ impl RtcServer {
 
         sig1.send(offer);
         let answer = match join!(
-            rtc_peer::join_channel(&peer_clone, sig2, setup_fn),
+            rtc_peer::join_channel(peer_clone, sig2, setup_fn),
             sig1.recv(),
         ) {
             (Ok(_), Ok(answer)) => answer,
@@ -329,11 +329,15 @@ impl RtcServer {
         let mut new_sessions = self.new_sessions.sender();
         crate::executor::spawn(async move {
             new_sessions.try_send(match channel_rx.next().await {
-                Some(data_channel) => Ok(RtcPeer {
-                    remote_id: NonZeroU16::new(data_channel.id()).expect("data_channel.id() must be non-null"),
-                    connection: peer,
-                    channel: data_channel,
-                }),
+                Some((data_channel, remote_addr)) => {
+                    info!("Connected to {}", remote_addr);
+
+                    Ok(RtcPeer {
+                        remote_addr,
+                        connection: peer,
+                        channel: data_channel,
+                    })
+                }
                 None => Err(RtcPeerError::ChannelInit),
             }).expect("trigger newly established");
         }).detach();
@@ -345,13 +349,13 @@ impl RtcServer {
         &mut self,
         packet: RtcPacket,
     ) -> RtcPeerResult<()> {
-        let peer = self.active_sessions.get(&packet.remote_id)
-            .ok_or(RtcPeerError::Missing(packet.remote_id.get()))?
+        let peer = self.active_sessions.get(&packet.remote_addr)
+            .ok_or(RtcPeerError::Missing(packet.remote_addr))?
             .as_ref().map_err(Clone::clone)?;
         if !packet.is_string {
             peer.channel.send(&packet.data).await?;
         } else {
-            todo!()
+            unimplemented!()
         }
         Ok(())
     }
@@ -411,14 +415,18 @@ impl RtcServer {
             Next::NewlyEstablished(newly_established) => {
                 match newly_established {
                     Ok(peer) => {
-                        if self.active_sessions.insert(peer.remote_id, Ok(peer)).is_some() {
-                            warn!("new connection established with conflicting id");
+                        let addr = peer.remote_addr;
+                        if self.active_sessions.insert(addr, Ok(peer)).is_some() {
+                            warn!("new connection has same address as existing connection: {}", addr);
                         }
                     }
                     Err(err) => warn!("connection establishment failed: {}", err),
                 }
             }
             Next::IncomingPacket => {
+                // NOTE: this will get processed by the recv fn which called this fn
+
+                // TODO: ??
                 // if len > MAX_UDP_PAYLOAD_SIZE {
                 //     return Err(IoError::new(
                 //         std::io::ErrorKind::Other,
@@ -426,14 +434,14 @@ impl RtcServer {
                 //     ));
                 // }
 
-                // this will get processed by the recv fn which called this fn
-
-                // self.send_outgoing().await?;
+                // // self.send_outgoing().await?;
             }
             Next::PeriodicTimer => {
-                self.timeout_clients();
-                self.send_periodic_packets();
-                // self.send_outgoing().await?;
+                // TODO: do I actually need this or does webrtc take care of it already?
+
+                // self.timeout_clients();
+                // self.send_periodic_packets();
+                // // self.send_outgoing().await?;
             }
         }
 
@@ -446,11 +454,13 @@ impl RtcServer {
 
 
 fn data_channel_init() -> Option<RTCDataChannelInit> { None }
-fn data_channel_setup_fn(mut message_queue: mpsc::Sender<RtcPacket>)
--> (impl FnOnce(Arc<RTCDataChannel>) + Clone, mpsc::Receiver<Arc<RTCDataChannel>>) {
+fn data_channel_setup_fn(mut message_queue: mpsc::Sender<RtcPacket>) -> (
+    impl FnOnce(Arc<RTCPeerConnection>, Arc<RTCDataChannel>) + Clone,
+    mpsc::Receiver<(Arc<RTCDataChannel>, SocketAddr)>
+) {
     let (mut tx, rx) = mpsc::channel(1);
     return (
-        |data_channel| {
+        |peer_connection, data_channel| {
             let d_label = data_channel.label().to_owned();
             let d_id = data_channel.id();
             info!("New DataChannel {} {}", d_label, d_id);
@@ -467,24 +477,30 @@ fn data_channel_setup_fn(mut message_queue: mpsc::Sender<RtcPacket>)
                     d2.max_packet_lifetime(),
                     d2.max_retransmits());
 
-                tx.try_send(d2).unwrap();
                 Box::pin(async move {
+                    let remote_addr = rtc_peer::get_nominated_candidate(&peer_connection)
+                        .await.expect("get_nominated_candidate")
+                        .remote_addr();
+
+                    d2.on_message(Box::new(move |msg: DataChannelMessage| {
+                        debug!("Received Message from DataChannel '{}'", d_label2);
+                        if let Err(e) = message_queue.try_send(RtcPacket {
+                            is_string: msg.is_string,
+                            remote_addr,
+                            data: msg.data, // TODO: copy audit
+                        }) {
+                            warn!("Message Queue full... dropping packet!");
+                        }
+                        Box::pin(async {})
+                    }));
+
+                    tx.try_send((d2, remote_addr)).unwrap();
                     // tx.send(match d2.detach().await).unwrap() // TODO: log err
                 })
             }));
 
             // Register text message handling
-            data_channel.on_message(Box::new(move |msg: DataChannelMessage| {
-                debug!("Received Message from DataChannel '{}'", d_label2);
-                if let Err(e) = message_queue.try_send(RtcPacket {
-                    is_string: msg.is_string,
-                    remote_id: NonZeroU16::new(d_id).expect("data_channel.id() must be non-null"),
-                    data: msg.data, // TODO: copy audit
-                }) {
-                    warn!("Message Queue full... dropping packet!");
-                }
-                Box::pin(async {})
-            }));
+            // ...
         },
         rx
     );
