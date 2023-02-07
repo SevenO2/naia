@@ -469,13 +469,7 @@ fn data_channel_setup_fn(mut message_queue: mpsc::Sender<RtcPacket>) -> (
             let d_label2 = d_label.clone();
             // Register channel opening handling
             data_channel.on_open(Box::new(move || {
-                info!("Data channel '{}'-'{}' open.",
-                    d_label, d_id);
-                debug!("protocol: {}, ordered: {}, pkt_life: {}, re_tx: {}",
-                    d2.protocol(),
-                    d2.ordered(),
-                    d2.max_packet_lifetime(),
-                    d2.max_retransmits());
+                rtc_peer::debug_data_channel(&d2);
 
                 Box::pin(async move {
                     let remote_addr = rtc_peer::get_nominated_candidate(&peer_connection)

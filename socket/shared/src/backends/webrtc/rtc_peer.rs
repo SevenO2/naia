@@ -162,6 +162,23 @@ async fn set_local_desc(peer_connection: &RTCPeerConnection, desc: RTCSessionDes
     Ok(())
 }
 
+pub fn debug_data_channel(dc: &RTCDataChannel) {
+    info!("Data channel '{}'-'{}' open.", dc.label(), dc.id());
+    debug!("protocol: {}, ordered: {}, pkt_life: {:?}, re_tx: {:?}",
+        dc.protocol(),
+        dc.ordered(),
+        dc.max_packet_lifetime(),
+        dc.max_retransmits());
+}
+
+pub const UNRELIABLE_CONFIG: RTCDataChannelInit = RTCDataChannelInit {
+    ordered: Some(false),
+    max_packet_life_time: None,
+    max_retransmits: Some(0),
+    protocol: None,
+    negotiated: None,
+};
+
 // TODO: trickle ICE, onicecandidate || signaler.send()
 pub async fn create_channel(
     peer_connection: Arc<RTCPeerConnection>,

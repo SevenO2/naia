@@ -56,7 +56,7 @@ impl Socket {
         create_channel(
             Arc::clone(&peer_connection),
             sig2,
-            None,
+            Some(UNRELIABLE_CONFIG),
             channel_setup
         ).await.expect("creating data_channel");
         signaling_join.await.expect("stdio signaling complete");
@@ -217,6 +217,8 @@ pub fn channel_setup_fn() -> (
         let data_channel_ref = Arc::clone(&data_channel);
         data_channel
             .on_open(Box::new(move || {
+                debug_data_channel(&data_channel_ref);
+
                 ready_tx.send(()).unwrap();
 
                 let data_channel_ref_2 = Arc::clone(&data_channel_ref);
