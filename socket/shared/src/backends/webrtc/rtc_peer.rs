@@ -309,6 +309,31 @@ impl CandidatePair {
     pub fn remote_addr(&self) -> SocketAddr {
         (IpAddr::from_str(&self.remote.ip).unwrap(), self.remote.port).into()
     }
+    pub fn net_stats(&self) -> NetStats {
+        NetStats {
+            packets_sent: self.pair.packets_sent,
+            packets_received: self.pair.packets_received,
+            bytes_sent: self.pair.bytes_sent,
+            bytes_received: self.pair.bytes_received,
+            retransmissions_sent: self.pair.retransmissions_sent,
+            total_round_trip_time: self.pair.total_round_trip_time,
+            current_round_trip_time: self.pair.current_round_trip_time,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct NetStats {
+    packets_sent: u32,
+    packets_received: u32,
+    bytes_sent: u64,
+    bytes_received: u64,
+    retransmissions_sent: u64,
+    total_round_trip_time: f64,
+    current_round_trip_time: f64,
+}
+impl NetStats {
+    pub fn ping(&self) -> f32 { self.current_round_trip_time as f32 }
 }
 
 use webrtc::stats::*;

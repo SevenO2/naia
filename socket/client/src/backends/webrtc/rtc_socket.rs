@@ -73,6 +73,8 @@ impl Socket {
             .set(remote_candidate)
             .await;
 
+        debug!("debug enabled");
+
 
         // TODO: save or return peer_connection
         (addr_cell, to_server_sender, to_client_receiver)
@@ -205,7 +207,7 @@ pub fn channel_setup_fn() -> (
     let (ready_tx, ready_rx) = oneshot::channel();
 
     // let func = |_peer, data_channel| {
-    let func = |_peer: Arc<RTCPeerConnection>, data_channel: Arc<RTCDataChannel>| {
+    let func = |peer: Arc<RTCPeerConnection>, data_channel: Arc<RTCDataChannel>| {
         // datachannel on_error callback
         data_channel
             .on_error(Box::new(move |error| {
@@ -243,6 +245,15 @@ pub fn channel_setup_fn() -> (
                             write_loop(detached_data_channel_2, to_server_receiver).await;
                         // do nothing with result, just close thread
                     });
+
+                    // tokio::spawn(async move {
+                    //     loop {
+                    //         sleep(Duration::from_secs(1)).await;
+                    //         if let Some(pair) = get_nominated_candidate(&peer).await {
+                    //             debug!("{:?}", pair.net_stats());
+                    //         }
+                    //     }
+                    // });
                 })
             }));
     };

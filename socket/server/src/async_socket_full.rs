@@ -58,6 +58,7 @@ impl AsyncSocket {
         //     session_accept_loop(server_clone, s2).await.expect("session_accept_loop");
         // }).detach();
 
+        debug!("debug enabled");
 
         let socket = AsyncSocket {
             rtc_server,
@@ -437,11 +438,17 @@ impl RtcServer {
                 // // self.send_outgoing().await?;
             }
             Next::PeriodicTimer => {
-                // TODO: do I actually need this or does webrtc take care of it already?
+                // for peer in self.active_sessions.values().filter_map(|p| p.as_ref().ok()) {
+                //     if let Some(candidate_pair) = rtc_peer::get_nominated_candidate(&peer.connection).await {
+                //         debug!("{:?}", candidate_pair.net_stats());
+                //     }
+                // }
 
+                // // self.send_outgoing().await?;
+
+                // TODO: do I actually need this or does webrtc take care of it already?
                 // self.timeout_clients();
                 // self.send_periodic_packets();
-                // // self.send_outgoing().await?;
             }
         }
 
@@ -477,7 +484,7 @@ fn data_channel_setup_fn(mut message_queue: mpsc::Sender<RtcPacket>) -> (
                         .remote_addr();
 
                     d2.on_message(Box::new(move |msg: DataChannelMessage| {
-                        debug!("Received Message from DataChannel '{}'", d_label2);
+                        trace!("Received Message from DataChannel '{}'", d_label2);
                         if let Err(e) = message_queue.try_send(RtcPacket {
                             is_string: msg.is_string,
                             remote_addr,
