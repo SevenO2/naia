@@ -20,3 +20,4 @@ bevy_app = { version = "0.9", default-features=false }
 bevy_core = { version = "0.9", default-features=false }
 bevy_ecs = { version = "0.9", default-features=false }
 bevy_log = { version = "0.9", default-features=false }
+bevy_utils = { version = "0.9", default-features=false }

@@ -7,4 +7,4 @@ mod channels;
 pub use channels::Channels;
 
 mod shared;
-pub use shared::shared_config;
+pub use shared::*;

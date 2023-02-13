@@ -1,8 +1,8 @@
-use bevy::{app::App, DefaultPlugins};
+use bevy::{app::App, DefaultPlugins, utils::default};
 
 use naia_bevy_client::{ClientConfig, Plugin as ClientPlugin, Stage};
 
-use naia_bevy_demo_shared::{protocol::Protocol, shared_config, Channels};
+use naia_bevy_demo_shared::{protocol::Protocol, shared_config, shared_connection_config, Channels};
 
 use crate::systems::{events, init, input, sync, tick};
 
@@ -11,7 +11,10 @@ pub fn run() {
         // Plugins
         .add_plugins(DefaultPlugins)
         .add_plugin(ClientPlugin::<Protocol, Channels>::new(
-            ClientConfig::default(),
+            ClientConfig {
+                connection: shared_connection_config(),
+                ..default()
+            },
             shared_config(),
         ))
         // Startup System

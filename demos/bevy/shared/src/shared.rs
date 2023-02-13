@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use naia_shared::{LinkConditionerConfig, SharedConfig, SocketConfig};
+use naia_shared::{LinkConditionerConfig, SharedConfig, SocketConfig, ConnectionConfig, PingConfig};
 
 use crate::channels::{Channels, CHANNEL_CONFIG};
 
@@ -21,4 +21,16 @@ pub fn shared_config() -> SharedConfig<Channels> {
         tick_interval,
         None,
     )
+}
+
+pub fn shared_connection_config() -> ConnectionConfig {
+    ConnectionConfig {
+        ping: PingConfig {
+            rtt_initial_estimate: Duration::from_millis(10),
+            jitter_initial_estimate: Duration::from_millis(3),
+            rtt_smoothing_factor: 0.1,
+            ..Default::default()
+        },
+        ..Default::default()
+    }
 }
