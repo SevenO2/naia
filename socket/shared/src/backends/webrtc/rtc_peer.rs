@@ -259,7 +259,10 @@ pub async fn stdio_signal_listener(signaling: SignalingChannel) -> Result<()> {
             // TODO: figure out how to poison this thread when the outer function returns
             // (As is, if the outer function returns, this will fail after newline read)
             println!("Awaiting next offer... Copy-paste here:");
-            if line_tx.try_send(util::must_read_stdin()).is_err() { return }
+            if let Err(e) = line_tx.try_send(util::must_read_stdin()) {
+                err!("problem with stdio_signal_listener: {}", e);
+                return
+            }
         }
     })?;
     loop {
