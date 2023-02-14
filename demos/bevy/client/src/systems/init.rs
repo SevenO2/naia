@@ -1,4 +1,5 @@
 use bevy::{ecs::system::Commands, log::info, prelude::Camera2dBundle};
+use bevy::prelude::*;
 
 use naia_bevy_client::Client;
 
@@ -7,9 +8,9 @@ use naia_bevy_demo_shared::{
     Channels,
 };
 
-use crate::resources::Global;
+use crate::resources::*;
 
-pub fn init(mut commands: Commands, mut client: Client<Protocol, Channels>) {
+pub fn init(mut commands: Commands, mut client: Client<Protocol, Channels>, asset_server: Res<AssetServer>) {
     info!("Naia Bevy Client Demo started");
 
     client.auth(Auth::new("charlie", "12345"));
@@ -20,4 +21,26 @@ pub fn init(mut commands: Commands, mut client: Client<Protocol, Channels>) {
 
     // Setup Colors
     commands.init_resource::<Global>();
+
+    // ...
+    let font = asset_server.load("FiraMono-Medium.ttf");
+    commands.spawn(
+        TextBundle::from_section(
+            "ping: --",
+            TextStyle {
+                font: font,
+                font_size: 50.0,
+                color: Color::WHITE,
+            },
+        )
+        .with_style(Style {
+            position_type: PositionType::Absolute,
+            position: UiRect {
+                top: Val::Px(5.0),
+                left: Val::Px(15.0),
+                ..default()
+            },
+            ..default()
+        }),
+    ).insert(Ping { rtt: 0.0, jitter: 0.0 });
 }

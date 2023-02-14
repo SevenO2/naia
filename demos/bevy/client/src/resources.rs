@@ -1,10 +1,16 @@
 use std::default::Default;
 
-use bevy::ecs::{entity::Entity, prelude::Resource};
+use bevy::ecs::{entity::Entity, prelude::Resource, prelude::Component};
 
 use naia_bevy_client::CommandHistory;
 
 use naia_bevy_demo_shared::protocol::KeyCommand;
+
+#[derive(Component)]
+pub struct Ping {
+    pub rtt: f32,
+    pub jitter: f32,
+}
 
 pub struct OwnedEntity {
     pub confirmed: Entity,
