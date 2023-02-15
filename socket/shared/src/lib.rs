@@ -26,12 +26,14 @@ mod link_conditioner_config;
 mod socket_config;
 mod time_queue;
 mod url_parse;
+mod packet_counter;
 
 pub use backends::{Instant, Random};
 pub use link_conditioner_config::LinkConditionerConfig;
 pub use socket_config::SocketConfig;
 pub use time_queue::TimeQueue;
 pub use url_parse::{parse_server_url, url_to_socket_addr};
+pub use packet_counter::PacketCounter;
 
 cfg_if! {
     if #[cfg(all(target_arch = "wasm32", feature = "wbindgen", feature = "mquad"))]

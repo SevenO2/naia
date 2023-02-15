@@ -16,7 +16,7 @@ use rtc_peer::{
     SignalingChannel, RTCPeerConnection, RTCDataChannel, RTCIceServer, RTCSessionDescription, RTCSettingEngine
 };
 
-use naia_socket_shared::SocketConfig;
+use naia_socket_shared::{SocketConfig, PacketCounter};
 // use naia_socket_shared::{parse_server_url, url_to_socket_addr};
 // use naia_socket_shared::signaling::{Signal, SignalingChannel};
 
@@ -174,6 +174,7 @@ struct RtcPeer {
     remote_addr: SocketAddr,
     connection: Arc<RTCPeerConnection>,
     channel: Arc<RTCDataChannel>,
+    counter: Arc<PacketCounter>,
 }
 // enum RtcPeer {
 //     Ready {
@@ -330,14 +331,10 @@ impl RtcServer {
         let mut new_sessions = self.new_sessions.sender();
         crate::executor::spawn(async move {
             new_sessions.try_send(match channel_rx.next().await {
-                Some((data_channel, remote_addr)) => {
-                    info!("Connected to {}", remote_addr);
+                Some(peer) => {
+                    info!("Connected to {}", peer.remote_addr);
 
-                    Ok(RtcPeer {
-                        remote_addr,
-                        connection: peer,
-                        channel: data_channel,
-                    })
+                    Ok(peer)
                 }
                 None => Err(RtcPeerError::ChannelInit),
             }).expect("trigger newly established");
@@ -354,6 +351,7 @@ impl RtcServer {
             .ok_or(RtcPeerError::Missing(packet.remote_addr))?
             .as_ref().map_err(Clone::clone)?;
         if !packet.is_string {
+            peer.counter.inc_sent();
             peer.channel.send(&packet.data).await?;
         } else {
             unimplemented!()
@@ -461,9 +459,11 @@ impl RtcServer {
 
 
 fn data_channel_init() -> Option<RTCDataChannelInit> { None }
-fn data_channel_setup_fn(mut message_queue: mpsc::Sender<RtcPacket>) -> (
+fn data_channel_setup_fn(
+    mut message_queue: mpsc::Sender<RtcPacket>
+) -> (
     impl FnOnce(Arc<RTCPeerConnection>, Arc<RTCDataChannel>) + Clone,
-    mpsc::Receiver<(Arc<RTCDataChannel>, SocketAddr)>
+    mpsc::Receiver<RtcPeer>
 ) {
     let (mut tx, rx) = mpsc::channel(1);
     return (
@@ -472,18 +472,24 @@ fn data_channel_setup_fn(mut message_queue: mpsc::Sender<RtcPacket>) -> (
             let d_id = data_channel.id();
             info!("New DataChannel {} {}", d_label, d_id);
 
+            let p2 = Arc::clone(&peer_connection);
             let d2 = Arc::clone(&data_channel);
             let d_label2 = d_label.clone();
             // Register channel opening handling
             data_channel.on_open(Box::new(move || {
                 rtc_peer::debug_data_channel(&d2);
 
+
                 Box::pin(async move {
                     let remote_addr = rtc_peer::get_nominated_candidate(&peer_connection)
                         .await.expect("get_nominated_candidate")
                         .remote_addr();
 
+                    let counter = Arc::new(PacketCounter::new(format!("Socket({})", remote_addr)));
+                    let c2 = Arc::clone(&counter);
+
                     d2.on_message(Box::new(move |msg: DataChannelMessage| {
+                        c2.inc_recv();
                         trace!("Received Message from DataChannel '{}'", d_label2);
                         if let Err(e) = message_queue.try_send(RtcPacket {
                             is_string: msg.is_string,
@@ -495,7 +501,12 @@ fn data_channel_setup_fn(mut message_queue: mpsc::Sender<RtcPacket>) -> (
                         Box::pin(async {})
                     }));
 
-                    tx.try_send((d2, remote_addr)).unwrap();
+                    tx.try_send(RtcPeer {
+                        remote_addr,
+                        connection: p2,
+                        channel: d2,
+                        counter,
+                    }).unwrap();
                     // tx.send(match d2.detach().await).unwrap() // TODO: log err
                 })
             }));
