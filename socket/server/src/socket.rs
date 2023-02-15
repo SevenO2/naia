@@ -1,3 +1,6 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use futures_util::SinkExt;
 use smol::channel;
 
@@ -42,13 +45,24 @@ impl Socket {
         let config_clone = self.config.clone();
 
         executor::spawn(async move {
+            // unsafe {
+            //     signal_hook_registry::register(
+            //         signal_hook::consts::SIGINT,
+            //         || panic!()
+            //     ).unwrap();
+            // }
+
+
             // Create async socket
             let mut async_socket = AsyncSocket::listen(server_addrs_clone, config_clone).await;
 
             sender_sender.send(async_socket.sender()).await.unwrap();
             //TODO: handle result..
 
-            loop {
+            let term = Arc::new(AtomicBool::new(false));
+            signal_hook::flag::register(signal_hook::consts::SIGQUIT, Arc::clone(&term)).unwrap();
+            while !term.load(Ordering::Relaxed) {
+            // loop {
                 let out_message = async_socket.receive().await;
                 from_client_sender.send(out_message).await.unwrap();
                 //TODO: handle result..

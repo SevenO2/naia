@@ -23,6 +23,6 @@ impl PacketCounter {
 
 impl Drop for PacketCounter {
 	fn drop(&mut self) {
-		info!("{:?}", self);
+		println!("{:?}", self);
 	}
 }
