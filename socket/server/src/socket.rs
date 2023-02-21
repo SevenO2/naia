@@ -45,14 +45,6 @@ impl Socket {
         let config_clone = self.config.clone();
 
         executor::spawn(async move {
-            // unsafe {
-            //     signal_hook_registry::register(
-            //         signal_hook::consts::SIGINT,
-            //         || panic!()
-            //     ).unwrap();
-            // }
-
-
             // Create async socket
             let mut async_socket = AsyncSocket::listen(server_addrs_clone, config_clone).await;
 
@@ -60,7 +52,6 @@ impl Socket {
             //TODO: handle result..
 
             let term = Arc::new(AtomicBool::new(false));
-            // signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&term)).unwrap();
             while !term.load(Ordering::Relaxed) {
             // loop {
                 let out_message = async_socket.receive().await;
