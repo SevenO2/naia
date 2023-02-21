@@ -44,12 +44,12 @@ impl Socket {
         );
         let conditioner_config = self.config.link_condition.clone();
 
-        let (addr_cell, to_server_sender, to_client_receiver) =
+        let (addr_cell, counter, to_server_sender, to_client_receiver) =
             get_runtime().block_on(RTCSocket::connect(&server_session_string));
 
         // Setup Packet Sender & Receiver
         let packet_sender = PacketSender::new(addr_cell.clone(), to_server_sender);
-        let packet_receiver_impl = PacketReceiverImpl::new(addr_cell, to_client_receiver);
+        let packet_receiver_impl = PacketReceiverImpl::new(addr_cell, counter, to_client_receiver);
 
         let receiver: Box<dyn PacketReceiverTrait> = {
             let inner_receiver = Box::new(packet_receiver_impl);

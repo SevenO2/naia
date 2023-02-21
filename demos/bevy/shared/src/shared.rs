@@ -31,6 +31,7 @@ pub fn shared_connection_config() -> ConnectionConfig {
             rtt_smoothing_factor: 0.01,
             ..Default::default()
         },
+        bandwidth_measure_duration: Some(Duration::from_millis(1000)),
         ..Default::default()
     }
 }

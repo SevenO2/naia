@@ -460,6 +460,9 @@ impl<P: Protocolize, E: Copy + Eq + Hash, C: ChannelIndex> Client<P, E, C> {
 
     fn disconnect_internal(&mut self) {
         let server_addr = self.server_address_unwrapped();
+
+        log::info!("disconnecting from {}...", server_addr);
+
         self.disconnect_cleanup();
 
         // exit early, we're disconnected, who cares?

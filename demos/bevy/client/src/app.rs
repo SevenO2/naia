@@ -1,4 +1,4 @@
-use bevy::{app::App, DefaultPlugins};
+use bevy::{app::*, DefaultPlugins};
 use bevy::prelude::*;
 
 use naia_bevy_client::{Client, ClientConfig, Plugin as ClientPlugin, Stage};
@@ -21,6 +21,9 @@ pub fn run() {
         ))
         // Startup System
         .add_startup_system(init)
+        // Shutdown Systems
+        .add_system_to_stage(Stage::Frame, close_on_esc)
+        .add_system_to_stage(Stage::Tick, shutdown.after(close_on_esc).after(sync))
         // Realtime Gameplay Loop
         .add_system_to_stage(Stage::Connection, events::connect_event)
         .add_system_to_stage(Stage::Disconnection, events::disconnect_event)
@@ -36,12 +39,26 @@ pub fn run() {
         .add_system_to_stage(Stage::Tick, ping)
         // Run App
         .run();
+
+    // std::thread::sleep(std::time::Duration::from_millis(200));
 }
 
 
+fn close_on_esc(keys: Res<Input<KeyCode>>, mut exit: EventWriter<AppExit>) {
+    if keys.pressed(KeyCode::Escape) {
+        exit.send(AppExit);
+    }
+}
+fn shutdown(mut client: Client<Protocol, Channels>, exit: EventReader<AppExit>) {
+    if !exit.is_empty() {
+        exit.clear();
+        client.disconnect();
+    }
+}
+
 fn ping(client: Client<Protocol, Channels>, mut ping: Query<(&mut Text, &mut Ping)>) {
     if !client.is_connected() { return }
-    let (mut text, mut ping) = ping.single_mut();
+    let (mut text, _ping) = ping.single_mut();
     let rtt = client.rtt() as u32;
     let jitter = client.jitter() as u32;
     text.sections[0].value = format!("ping: {rtt} +/- {jitter}");

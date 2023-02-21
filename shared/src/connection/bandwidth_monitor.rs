@@ -2,7 +2,8 @@ use std::time::Duration;
 
 pub struct BandwidthMonitor {
     time_queue: TimeQueue<usize>,
-    total_bytes: u16,
+    count: u16,
+    total_bytes: u32,
     to_kbps_factor: f32,
 }
 
@@ -10,6 +11,7 @@ impl BandwidthMonitor {
     pub fn new(bandwidth_measure_duration: Duration) -> Self {
         BandwidthMonitor {
             time_queue: TimeQueue::new(bandwidth_measure_duration),
+            count: 0,
             total_bytes: 0,
             to_kbps_factor: 0.008 / bandwidth_measure_duration.as_secs_f32(),
         }
@@ -18,8 +20,15 @@ impl BandwidthMonitor {
     pub fn record_packet(&mut self, bytes: usize) {
         self.clear_expired_packets();
 
-        self.total_bytes += bytes as u16;
+        self.count += 1;
+        self.total_bytes += bytes as u32;
         self.time_queue.add_item(bytes);
+    }
+
+    pub fn packet_count(&mut self) -> u16 {
+        self.clear_expired_packets();
+
+        self.count
     }
 
     pub fn bandwidth(&mut self) -> f32 {
@@ -30,7 +39,8 @@ impl BandwidthMonitor {
 
     fn clear_expired_packets(&mut self) {
         while let Some(bytes) = self.time_queue.pop_item() {
-            self.total_bytes -= bytes as u16;
+            self.count -= 1;
+            self.total_bytes -= bytes as u32;
         }
     }
 }

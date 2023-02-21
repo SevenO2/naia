@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, panic, time::Duration};
+use std::{net::SocketAddr, panic, time::Duration, collections::HashMap};
 
 use naia_server_socket::{NaiaServerSocketError, PacketReceiver, PacketSender};
 
@@ -15,6 +15,8 @@ use super::bandwidth_monitor::BandwidthMonitor;
 pub struct Io {
     packet_sender: Option<PacketSender>,
     packet_receiver: Option<PacketReceiver>,
+    outgoing_packet_counter: HashMap<SocketAddr, u16>, // TODO: overflow handling?
+    incoming_packet_counter: HashMap<SocketAddr, u16>, // TODO: overflow handling?
     outgoing_bandwidth_monitor: Option<BandwidthMonitor>,
     incoming_bandwidth_monitor: Option<BandwidthMonitor>,
     outgoing_encoder: Option<Encoder>,
@@ -28,6 +30,9 @@ impl Io {
     ) -> Self {
         let outgoing_bandwidth_monitor = bandwidth_measure_duration.map(BandwidthMonitor::new);
         let incoming_bandwidth_monitor = bandwidth_measure_duration.map(BandwidthMonitor::new);
+
+        let outgoing_packet_counter = HashMap::new();
+        let incoming_packet_counter = HashMap::new();
 
         let outgoing_encoder = compression_config.as_ref().and_then(|config| {
             config
@@ -47,6 +52,8 @@ impl Io {
             packet_receiver: None,
             outgoing_bandwidth_monitor,
             incoming_bandwidth_monitor,
+            outgoing_packet_counter,
+            incoming_packet_counter,
             outgoing_encoder,
             incoming_decoder,
         }
@@ -80,6 +87,10 @@ impl Io {
             monitor.record_packet(address, payload.len());
         }
 
+        if let Some(packet_count) = self.outgoing_packet_counter.get_mut(&address) {
+            *packet_count += 1;
+        }
+
         self.packet_sender
             .as_ref()
             .expect("Cannot call Server.send_packet() until you call Server.listen()!")
@@ -102,6 +113,10 @@ impl Io {
                     monitor.record_packet(&address, payload.len());
                 }
 
+                if let Some(packet_count) = self.incoming_packet_counter.get_mut(&address) {
+                    *packet_count += 1;
+                }
+
                 // Decompression
                 if let Some(decoder) = &mut self.incoming_decoder {
                     payload = decoder.decode(payload);
@@ -114,30 +129,33 @@ impl Io {
         }
     }
 
-    pub fn bandwidth_monitor_enabled(&self) -> bool {
-        self.outgoing_bandwidth_monitor.is_some() && self.incoming_bandwidth_monitor.is_some()
-    }
+    // pub fn bandwidth_monitor_enabled(&self) -> bool {
+    //     self.outgoing_bandwidth_monitor.is_some() && self.incoming_bandwidth_monitor.is_some()
+    // }
 
     pub fn register_client(&mut self, address: &SocketAddr) {
-        self.outgoing_bandwidth_monitor
-            .as_mut()
-            .expect("Need to call `enable_bandwidth_monitor()` on Io before calling this")
-            .create_client(address);
-        self.incoming_bandwidth_monitor
-            .as_mut()
-            .expect("Need to call `enable_bandwidth_monitor()` on Io before calling this")
-            .create_client(address);
+        assert!(self.outgoing_packet_counter.insert(*address, 0).is_none(), "duplicate client registration");
+        assert!(self.incoming_packet_counter.insert(*address, 0).is_none(), "duplicate client registration");
+
+        if let Some(outgoing) = self.outgoing_bandwidth_monitor.as_mut() {
+            outgoing.create_client(address);
+        }
+        if let Some(incoming) = self.incoming_bandwidth_monitor.as_mut() {
+            incoming.create_client(address);
+        }
     }
 
     pub fn deregister_client(&mut self, address: &SocketAddr) {
-        self.outgoing_bandwidth_monitor
-            .as_mut()
-            .expect("Need to call `enable_bandwidth_monitor()` on Io before calling this")
-            .delete_client(address);
-        self.incoming_bandwidth_monitor
-            .as_mut()
-            .expect("Need to call `enable_bandwidth_monitor()` on Io before calling this")
-            .delete_client(address);
+        let outgoing_count = self.outgoing_packet_counter.remove(address).expect("client not registered");
+        let incoming_count = self.incoming_packet_counter.remove(address).expect("client not registered");
+        log::info!("NaiaServer({address}) {{ outgoing_packet_count: {outgoing_count}, incoming_packet_count: {incoming_count} }}");
+
+        if let Some(outgoing) = self.outgoing_bandwidth_monitor.as_mut() {
+            outgoing.delete_client(address);
+        }
+        if let Some(incoming) = self.incoming_bandwidth_monitor.as_mut() {
+            incoming.delete_client(address);
+        }
     }
 
     pub fn outgoing_bandwidth_total(&mut self) -> f32 {

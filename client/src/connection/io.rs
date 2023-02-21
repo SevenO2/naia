@@ -11,6 +11,8 @@ pub use naia_shared::{
 pub struct Io {
     packet_sender: Option<PacketSender>,
     packet_receiver: Option<PacketReceiver>,
+    outgoing_packet_counter: Option<u16>, // TODO: overflow handling?
+    incoming_packet_counter: Option<u16>, // TODO: overflow handling?
     outgoing_bandwidth_monitor: Option<BandwidthMonitor>,
     incoming_bandwidth_monitor: Option<BandwidthMonitor>,
     outgoing_encoder: Option<Encoder>,
@@ -41,6 +43,8 @@ impl Io {
         Io {
             packet_sender: None,
             packet_receiver: None,
+            outgoing_packet_counter: None,
+            incoming_packet_counter: None,
             outgoing_bandwidth_monitor,
             incoming_bandwidth_monitor,
             outgoing_encoder,
@@ -55,6 +59,8 @@ impl Io {
 
         self.packet_sender = Some(packet_sender);
         self.packet_receiver = Some(packet_receiver);
+        self.outgoing_packet_counter = Some(0);
+        self.incoming_packet_counter = Some(0);
     }
 
     pub fn is_loaded(&self) -> bool {
@@ -76,6 +82,10 @@ impl Io {
             monitor.record_packet(payload.len());
         }
 
+        if let Some(packet_count) = self.outgoing_packet_counter.as_mut() {
+            *packet_count += 1;
+        }
+
         self.packet_sender
             .as_mut()
             .expect("Cannot call Client.send_packet() until you call Client.connect()!")
@@ -93,6 +103,10 @@ impl Io {
             // Bandwidth monitoring
             if let Some(monitor) = &mut self.incoming_bandwidth_monitor {
                 monitor.record_packet(payload.len());
+            }
+
+            if let Some(packet_count) = self.incoming_packet_counter.as_mut() {
+                *packet_count += 1;
             }
 
             // Decompression
@@ -133,5 +147,13 @@ impl Io {
             .as_mut()
             .expect("Need to call `enable_bandwidth_monitor()` on Io before calling this")
             .bandwidth();
+    }
+}
+
+impl Drop for Io {
+    fn drop(&mut self) {
+        if let (Some(outgoing), Some(incoming)) = (self.outgoing_packet_counter, self.incoming_packet_counter) {
+            log::info!("NaiaClient(SERVER) {{ outgoing_packet_count: {outgoing}, incoming_packet_count: {incoming} }}");
+        }
     }
 }

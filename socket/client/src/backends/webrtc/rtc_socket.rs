@@ -15,7 +15,7 @@ use webrtc::peer_connection::{sdp::session_description::RTCSessionDescription, R
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 
-use naia_socket_shared::rtc_peer;
+use naia_socket_shared::{rtc_peer, PacketCounter};
 use rtc_peer::*;
 // use rtc_peer::{
 //     SignalingChannel, RTCPeerConnection, RTCDataChannel, RTCIceServer, RTCSessionDescription, RTCSettingEngine
@@ -32,7 +32,7 @@ pub struct Socket;
 impl Socket {
     pub async fn connect(
         server_url: &str,
-    ) -> (AddrCell, mpsc::Sender<Box<[u8]>>, mpsc::Receiver<Box<[u8]>>) {
+    ) -> (AddrCell, Arc<PacketCounter>, mpsc::Sender<Box<[u8]>>, mpsc::Receiver<Box<[u8]>>) {
         let addr_cell = AddrCell::default();
         let (channel_setup, channel_ready, to_server_sender, to_client_receiver)
             = channel_setup_fn();
@@ -60,12 +60,9 @@ impl Socket {
             channel_setup
         ).await.expect("creating data_channel");
         signaling_join.await.expect("stdio signaling complete");
-        channel_ready.await.expect("data_channel ready");
+        let (remote_candidate, counter) = channel_ready.await.expect("data_channel ready");
 
-        // FIXME: data_channel isn't finalized at this point.
-        //        need to await a signal from on_open()
-
-        let remote_candidate = get_nominated_candidate(&peer_connection).await.expect("get_nominated_candidate").remote_addr();
+        // let remote_candidate = get_nominated_candidate(&peer_connection).await.expect("get_nominated_candidate").remote_addr();
         // let remote_candidate = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
         info!("Connected to {}", remote_candidate);
 
@@ -77,7 +74,7 @@ impl Socket {
 
 
         // TODO: save or return peer_connection
-        (addr_cell, to_server_sender, to_client_receiver)
+        (addr_cell, counter, to_server_sender, to_client_receiver)
     }
 
     // pub async fn connect(
@@ -195,7 +192,7 @@ fn fallback_ice_servers() -> Vec<RTCIceServer> {
 
 pub fn channel_setup_fn() -> (
     impl FnOnce(Arc<RTCPeerConnection>, Arc<RTCDataChannel>),
-    oneshot::Receiver<()>,
+    oneshot::Receiver<(SocketAddr, Arc<PacketCounter>)>,
     mpsc::Sender<Box<[u8]>>,
     mpsc::Receiver<Box<[u8]>>
 ) {
@@ -221,8 +218,6 @@ pub fn channel_setup_fn() -> (
             .on_open(Box::new(move || {
                 debug_data_channel(&data_channel_ref);
 
-                ready_tx.send(()).unwrap();
-
                 let data_channel_ref_2 = Arc::clone(&data_channel_ref);
                 Box::pin(async move {
                     let detached_data_channel = data_channel_ref_2
@@ -230,21 +225,29 @@ pub fn channel_setup_fn() -> (
                         .await
                         .expect("data channel detach got error");
 
+                    let remote_addr = get_nominated_candidate(&peer).await.expect("get_nominated_candidate").remote_addr();
+
+                    let counter = Arc::new(PacketCounter::new(format!("Socket({})", remote_addr)));
+
                     // Handle reading from the data channel
                     let detached_data_channel_1 = Arc::clone(&detached_data_channel);
                     let detached_data_channel_2 = Arc::clone(&detached_data_channel);
+                    let counter_1 = Arc::clone(&counter);
+                    let counter_2 = Arc::clone(&counter);
                     tokio::spawn(async move {
                         let _loop_result =
-                            read_loop(detached_data_channel_1, to_client_sender).await;
+                            read_loop(detached_data_channel_1, counter_1, to_client_sender).await;
                         // do nothing with result, just close thread
                     });
 
                     // Handle writing to the data channel
                     tokio::spawn(async move {
                         let _loop_result =
-                            write_loop(detached_data_channel_2, to_server_receiver).await;
+                            write_loop(detached_data_channel_2, counter_2, to_server_receiver).await;
                         // do nothing with result, just close thread
                     });
+
+                    ready_tx.send((remote_addr, counter)).unwrap();
 
                     // tokio::spawn(async move {
                     //     loop {
@@ -341,9 +344,11 @@ pub async fn http_signal_once(server_url: &str, offer: RTCSessionDescription)
 // read_loop shows how to read from the datachannel directly
 async fn read_loop(
     data_channel: Arc<DataChannel>,
+    counter: Arc<PacketCounter>,
     to_client_sender: mpsc::Sender<Box<[u8]>>,
 ) -> Result<()> {
     let mut buffer = vec![0u8; MESSAGE_SIZE];
+
     loop {
         let message_length = match data_channel.read(&mut buffer).await {
             Ok(length) => length,
@@ -352,6 +357,8 @@ async fn read_loop(
                 return Ok(());
             }
         };
+
+        counter.inc_recv();
 
         match to_client_sender.send(buffer[..message_length].into()).await {
             Ok(_) => {}
@@ -365,12 +372,13 @@ async fn read_loop(
 // write_loop shows how to write to the datachannel directly
 async fn write_loop(
     data_channel: Arc<DataChannel>,
+    counter: Arc<PacketCounter>,
     mut to_server_receiver: mpsc::Receiver<Box<[u8]>>,
 ) -> Result<()> {
     loop {
         if let Some(write_message) = to_server_receiver.recv().await {
             match data_channel.write(&Bytes::from(write_message)).await {
-                Ok(_) => {}
+                Ok(_) => { counter.inc_sent(); }
                 Err(e) => {
                     return Err(Error::new(e));
                 }

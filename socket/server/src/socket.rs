@@ -60,13 +60,15 @@ impl Socket {
             //TODO: handle result..
 
             let term = Arc::new(AtomicBool::new(false));
-            signal_hook::flag::register(signal_hook::consts::SIGQUIT, Arc::clone(&term)).unwrap();
+            // signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&term)).unwrap();
             while !term.load(Ordering::Relaxed) {
             // loop {
                 let out_message = async_socket.receive().await;
                 from_client_sender.send(out_message).await.unwrap();
                 //TODO: handle result..
             }
+
+            // drop(async_socket);
         })
         .detach();
 

@@ -176,6 +176,11 @@ struct RtcPeer {
     channel: Arc<RTCDataChannel>,
     counter: Arc<PacketCounter>,
 }
+impl Drop for RtcPeer {
+ fn drop(&mut self) {
+     debug!("{:?}", self.counter);
+ }
+}
 // enum RtcPeer {
 //     Ready {
 //         remote_addr: SocketAddr,
@@ -338,6 +343,9 @@ impl RtcServer {
                 }
                 None => Err(RtcPeerError::ChannelInit),
             }).expect("trigger newly established");
+
+            // FIXME: done_rx.await() to detect connection closed (failed only?)
+            //        and remove from active_sessions
         }).detach();
 
         Ok(answer)

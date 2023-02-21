@@ -201,9 +201,7 @@ impl<P: Protocolize, E: Copy + Eq + Hash + Send + Sync, C: ChannelIndex> Server<
             self.io.send_writer(&user.address, &mut writer);
             //
             self.user_connections.insert(user.address, new_connection);
-            if self.io.bandwidth_monitor_enabled() {
-                self.io.register_client(&user.address);
-            }
+            self.io.register_client(&user.address);
             self.incoming_events
                 .push_back(Ok(Event::Connection(*user_key)));
         }
@@ -678,9 +676,7 @@ impl<P: Protocolize, E: Copy + Eq + Hash + Send + Sync, C: ChannelIndex> Server<
                     room.unsubscribe_user(user_key);
                 }
 
-                if self.io.bandwidth_monitor_enabled() {
-                    self.io.deregister_client(&user.address);
-                }
+                self.io.deregister_client(&user.address);
 
                 return Some(user);
             }
