@@ -114,6 +114,10 @@ impl AckManager {
     pub fn next_outgoing_packet_header(&mut self, packet_type: PacketType) -> StandardHeader {
         let next_packet_index = self.next_sender_packet_index();
 
+        log::trace!("Acking: {}: {:b}",
+            self.last_received_packet_index(),
+            self.ack_bitfield());
+
         let outgoing = StandardHeader::new(
             packet_type,
             next_packet_index,
@@ -133,6 +137,8 @@ impl AckManager {
         message_manager: &mut MessageManager<P, C>,
         packet_notifiable: &mut Option<&mut dyn PacketNotifiable>,
     ) {
+        // log::trace!("Packet ack: {sent_packet_index}");
+
         message_manager.notify_packet_delivered(sent_packet_index);
         if let Some(notifiable) = packet_notifiable {
             notifiable.notify_packet_delivered(sent_packet_index);

@@ -6,7 +6,7 @@ use crate::channels::{Channels, CHANNEL_CONFIG};
 
 pub fn shared_config() -> SharedConfig<Channels> {
     // Set tick rate to ~60 FPS
-    let tick_interval = Some(Duration::from_millis(20));
+    let tick_interval = Some(Duration::from_millis(40));
 
     // let link_condition = None;
     // let link_condition = Some(LinkConditionerConfig::good_condition());
