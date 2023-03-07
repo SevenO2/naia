@@ -75,7 +75,7 @@ impl AsyncSocket {
             ToClientMessage((SocketAddr, Box<[u8]>)),
         }
 
-        loop {
+        loop { // TODO: probably want separate loops for send/recv
             let next = {
                 let to_client_receiver_next = self.to_client_receiver.next().fuse();
                 pin_mut!(to_client_receiver_next);
@@ -368,10 +368,14 @@ impl RtcServer {
     }
 
     pub async fn recv(&mut self) -> RtcPeerResult<RtcPacket> {
+        // TODO: skip peek() altogether and just have process return Some<RtcPacket>
+
+        // TODO: ? poll_peek()
         while !futures_util::poll!(self.incoming_packets.peek()).is_ready() {
             self.process().await?;
         }
 
+        // TODO: ? poll_next()
         let std::task::Poll::Ready(res) = futures_util::poll!(self.incoming_packets.next()) else {
             panic!("next pending after peek???");
         };
@@ -504,6 +508,7 @@ fn data_channel_setup_fn(
                             remote_addr,
                             data: msg.data, // TODO: copy audit
                         }) {
+                            // TODO: verify this isn't silently triggering
                             warn!("Message Queue full... dropping packet!");
                         }
                         Box::pin(async {})
